@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useCallback, useEffect } from "react";
+import { Html5Qrcode } from "html5-qrcode";
 import { useStore } from "@/lib/store";
 import { translations } from "@/lib/i18n";
 import { Worker } from "@/types";
@@ -27,10 +28,7 @@ export default function SecurityPage() {
   const [codeVerified, setCodeVerified] = useState(false);
 
   const searchRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   const today = todayDate();
   const todayLogs = logs.filter((l) => l.date === today);
@@ -163,77 +161,52 @@ export default function SecurityPage() {
   }
 
   // QR scanning
-  const stopCam = useCallback(() => {
-    if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
-    streamRef.current?.getTracks().forEach((t) => t.stop());
-    streamRef.current = null;
-    if (videoRef.current) { videoRef.current.srcObject = null; videoRef.current.style.display = "none"; }
+  const stopCam = useCallback(async () => {
+    try {
+      if (scannerRef.current) {
+        const state = scannerRef.current.getState();
+        if (state === 2) { // SCANNING
+          await scannerRef.current.stop();
+        }
+        scannerRef.current.clear();
+        scannerRef.current = null;
+      }
+    } catch {
+      scannerRef.current = null;
+    }
     setScanning(false);
   }, []);
 
   async function toggleCam() {
-    if (streamRef.current) { stopCam(); return; }
+    if (scanning) { await stopCam(); return; }
     try {
-      // @ts-expect-error jsQR loaded dynamically
-      if (!window.jsQR) {
-        await new Promise<void>((resolve, reject) => {
-          const s = document.createElement("script");
-          s.src = "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js";
-          s.onload = () => resolve();
-          s.onerror = () => reject();
-          document.head.appendChild(s);
-        });
-      }
+      const scannerId = "qr-reader";
+      // Ensure container exists
+      if (!document.getElementById(scannerId)) return;
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.style.display = "block";
-      }
+      const scanner = new Html5Qrcode(scannerId);
+      scannerRef.current = scanner;
       setScanning(true);
 
-      // Wait for video ready
-      await new Promise<void>((resolve) => {
-        const check = setInterval(() => {
-          if (videoRef.current && videoRef.current.readyState >= 2 && videoRef.current.videoWidth > 10) {
-            clearInterval(check);
-            resolve();
-          }
-        }, 100);
-      });
-
-      const canvas = canvasRef.current!;
-      const ctx = canvas.getContext("2d", { willReadFrequently: true })!;
-      let detected = false;
-
-      scanIntervalRef.current = setInterval(() => {
-        if (!streamRef.current || detected) return;
-        const v = videoRef.current!;
-        if (v.videoWidth === 0 || v.readyState < 2) return;
-        canvas.width = v.videoWidth;
-        canvas.height = v.videoHeight;
-        ctx.drawImage(v, 0, 0, canvas.width, canvas.height);
-        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        // @ts-expect-error jsQR loaded dynamically
-        const result = window.jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "attemptBoth" });
-        if (result?.data?.trim()) {
-          detected = true;
-          setTimeout(stopCam, 500);
-          const workerId = result.data.trim();
+      await scanner.start(
+        { facingMode: "environment" },
+        { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+        (decodedText) => {
+          const workerId = decodedText.trim();
           setSearchVal(workerId);
-          setTimeout(() => searchWorker(workerId), 700);
-        }
-      }, 200);
+          stopCam().then(() => {
+            searchWorker(workerId);
+          });
+        },
+        () => {} // ignore scan failures (no QR in frame)
+      );
     } catch {
-      stopCam();
+      await stopCam();
       setAlert({ type: "err", msg: "Camera error - use manual search" });
     }
   }
 
-  useEffect(() => { return () => stopCam(); }, [stopCam]);
+  useEffect(() => { return () => { stopCam(); }; }, [stopCam]);
 
   return (
     <div className="p-4 max-w-[900px] mx-auto">
@@ -294,15 +267,21 @@ export default function SecurityPage() {
             scanning ? "border-cyan border-solid bg-[#020e1a]" : "border-border"
           }`}
         >
-          <div className="text-2xl">{scanning ? "STOP" : "\u{1F4F7}"}</div>
-          <div className={`text-sm font-bold mt-1 ${scanning ? "text-red2" : "text-[#58a6ff]"}`}>
-            {scanning ? "Tap to stop camera" : t.tapToScan}
-          </div>
-          <div className="text-xs text-text2 mt-0.5">{scanning ? "Hold QR code steady" : t.requiresCamera}</div>
+          {!scanning && (
+            <>
+              <div className="text-2xl">{"\u{1F4F7}"}</div>
+              <div className="text-sm font-bold mt-1 text-[#58a6ff]">{t.tapToScan}</div>
+              <div className="text-xs text-text2 mt-0.5">{t.requiresCamera}</div>
+            </>
+          )}
+          {scanning && (
+            <>
+              <div className="text-sm font-bold text-red2 mb-2">Tap to stop camera</div>
+            </>
+          )}
         </div>
 
-        <video ref={videoRef} autoPlay playsInline muted className="w-full rounded-lg max-h-[260px] object-cover border-2 border-cyan mb-2" style={{ display: "none" }} />
-        <canvas ref={canvasRef} style={{ display: "none" }} />
+        <div id="qr-reader" className={`mb-3 rounded-lg overflow-hidden ${scanning ? "" : "hidden"}`} />
 
         <div className="flex gap-2 mb-1">
           <input
