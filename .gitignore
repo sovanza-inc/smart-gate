@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# environment variables
+.env
+.env.local
+.env.production
+.env*.local
+
+# debug
+npm-debug.log*
+
+# misc
+.DS_Store
+*.tgz
+
+# vercel
+.vercel
+
+# claude
+.claude/
