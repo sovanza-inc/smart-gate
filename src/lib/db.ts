@@ -4,6 +4,14 @@ const sql = neon(process.env.DATABASE_URL!);
 
 export default sql;
 
+let dbInitialized = false;
+
+export async function ensureDB() {
+  if (dbInitialized) return;
+  await initDB();
+  dbInitialized = true;
+}
+
 export async function initDB() {
   await sql`
     CREATE TABLE IF NOT EXISTS workers (

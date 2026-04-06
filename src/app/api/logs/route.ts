@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import sql from "@/lib/db";
+import sql, { ensureDB } from "@/lib/db";
 import { LogEntry } from "@/types";
 
 function rowToLog(r: Record<string, unknown>): LogEntry {
@@ -19,6 +19,7 @@ function rowToLog(r: Record<string, unknown>): LogEntry {
 
 export async function GET() {
   try {
+    await ensureDB();
     const rows = await sql`SELECT * FROM logs ORDER BY id DESC`;
     return NextResponse.json(rows.map(rowToLog));
   } catch (e) {
@@ -29,6 +30,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureDB();
     const l: LogEntry = await req.json();
     await sql`
       INSERT INTO logs (worker_id, name, job, contractor, nationality, face_photo, type, time, date, speed)

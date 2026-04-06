@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import sql from "@/lib/db";
+import sql, { ensureDB } from "@/lib/db";
 import { Worker } from "@/types";
 
 function rowToWorker(r: Record<string, unknown>): Worker {
@@ -26,6 +26,7 @@ function rowToWorker(r: Record<string, unknown>): Worker {
 
 export async function GET() {
   try {
+    await ensureDB();
     const rows = await sql`SELECT * FROM workers ORDER BY created_at DESC`;
     return NextResponse.json(rows.map(rowToWorker));
   } catch (e) {
@@ -36,6 +37,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    await ensureDB();
     const w: Worker = await req.json();
     await sql`
       INSERT INTO workers (id, name, iqama, contractor, job, phone, telegram, nationality,
@@ -52,6 +54,7 @@ export async function POST(req: NextRequest) {
 
 export async function PUT(req: NextRequest) {
   try {
+    await ensureDB();
     const w: Worker = await req.json();
     await sql`
       UPDATE workers SET
@@ -68,6 +71,7 @@ export async function PUT(req: NextRequest) {
 
 export async function DELETE(req: NextRequest) {
   try {
+    await ensureDB();
     const { id } = await req.json();
     await sql`DELETE FROM workers WHERE id = ${id}`;
     return NextResponse.json({ ok: true });
